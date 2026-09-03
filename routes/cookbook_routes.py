@@ -73,6 +73,18 @@ _HF_TOKEN_STATUS_SNIPPET = (
 )
 
 
+def _serve_command_tool_support(cmd: str) -> bool | None:
+    """Infer native auto-tool support only when the serve flags prove it."""
+    command = cmd or ""
+    if "--enable-auto-tool-choice" in command:
+        return True
+    if re.search(r"(?:^|[/\s])vllm\s+serve(?:\s|$)", command):
+        return False
+    if "sglang.launch_server" in command:
+        return False
+    return None
+
+
 def _windows_local_pid_record_line(pid_path: Path, ready_path: Path) -> str:
     """Build the Git Bash prelude that records a Win32-stoppable PID.
 
@@ -1828,7 +1840,7 @@ def setup_cookbook_routes() -> APIRouter:
         # If the serve command opts models into OpenAI tool-calling, record it so
         # agent_loop trusts emitted tool_calls instead of the name heuristic.
         is_ollama_endpoint = "ollama" in (req.cmd or "").lower()
-        supports_tools = True if "--enable-auto-tool-choice" in req.cmd else None
+        supports_tools = _serve_command_tool_support(req.cmd)
         # Pin the model the user launched for every Cookbook-created LLM
         # endpoint, not just Ollama. Some OpenAI-compatible servers report a
         # deployment alias from /v1/models, and a stale server can answer on the
