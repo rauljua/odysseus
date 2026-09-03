@@ -1486,6 +1486,26 @@ def test_post_dedupe_existing_does_not_clobber_pinned_when_omitted(monkeypatch):
     assert db.committed == 0  # nothing to persist
 
 
+def test_post_dedupe_existing_updates_explicit_tool_capability(monkeypatch):
+    existing = _make_endpoint(
+        base_url="http://host:1234/v1",
+        supports_tools=True,
+    )
+    db = _PinnedFakeDb([existing])
+    _patch_create_deps(monkeypatch, db)
+    create = _get_route("/api/model-endpoints", "POST")
+
+    result = create(
+        _PinnedFakeRequest(),
+        base_url="http://host:1234/v1",
+        **_create_form_kwargs(supports_tools="false"),
+    )
+
+    assert result["existing"] is True
+    assert existing.supports_tools is False
+    assert db.committed == 1
+
+
 def test_post_same_base_url_different_api_key_creates_distinct_endpoint(monkeypatch):
     existing = _make_endpoint(
         base_url="https://api.example.test/v1",

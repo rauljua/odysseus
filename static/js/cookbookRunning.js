@@ -4286,13 +4286,13 @@ async function _pollBackgroundStatus() {
       _updateTask(t.session_id, { _serveReady: true });
       if (localTask) _autoSaveWorkingConfig(localTask);   // remember working settings (modal may be closed)
 
-      // Auto-detect function-calling support from the serve cmd.
-      // vLLM emits OpenAI-style tool_calls only when launched with
-      // `--enable-auto-tool-choice`; local-only models otherwise
-      // hallucinate a fake [TOOL_CALL]...[/TOOL_CALL] text format
-      // the backend can't parse.
+      // Record function-calling support from the actual serve command. Model
+      // names cannot prove that the local runtime was launched with the flags
+      // required to accept OpenAI's implicit `tool_choice: auto`.
       const _cmd = localTask?.payload?._cmd || '';
-      const _supportsTools = _cmd.includes('--enable-auto-tool-choice') || _isDiffusion === false && /(?:^|\s)(?:deepseek|gpt-[45o]|claude|gemini|qwen3|qwen2\.5|mixtral|llama-[34]|minimax|kimi|hermes|glm-4)/i.test(t.model);
+      const _toolCapabilityKnown = /(?:^|[/\s])vllm\s+serve(?:\s|$)/.test(_cmd)
+        || _cmd.includes('sglang.launch_server');
+      const _supportsTools = _cmd.includes('--enable-auto-tool-choice');
 
       fetch('/api/model-endpoints', { credentials: 'same-origin' })
         .then(r => r.json())
@@ -4319,7 +4319,7 @@ async function _pollBackgroundStatus() {
           _appendCookbookEndpointScope(fd, localTask?.remoteHost || t.remote || '');
           _appendPinnedServeModel(fd, localTask || { name: t.model, model: t.model, payload: { repo_id: t.model, _cmd } });
           if (_isDiffusion) fd.append('model_type', 'image');
-          if (_supportsTools) fd.append('supports_tools', 'true');
+          if (_toolCapabilityKnown) fd.append('supports_tools', String(_supportsTools));
           return fetch('/api/model-endpoints', { method: 'POST', credentials: 'same-origin', body: fd });
         })
         .then(async (res) => {

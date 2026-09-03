@@ -28,3 +28,11 @@ def test_cookbook_advertised_bind_urls_keep_connectable_host():
     assert "function _endpointFromAdvertisedUrl" in src
     assert "_isAnyBindHost(u.hostname) ? currentHost" in src
     assert "host = u.hostname || host;" not in src
+
+
+def test_cookbook_records_tool_support_from_serve_flags_not_model_name():
+    src = _source()
+    assert "const _toolCapabilityKnown" in src
+    assert "fd.append('supports_tools', String(_supportsTools))" in src
+    assert "const _supportsTools = _cmd.includes('--enable-auto-tool-choice');" in src
+    assert "_supportsTools = _cmd.includes('--enable-auto-tool-choice') ||" not in src

@@ -2011,6 +2011,8 @@ def setup_model_routes(model_discovery):
         base_url = _normalize_base(base_url)
         if not base_url:
             raise HTTPException(400, "Base URL is required")
+        _st_raw = (supports_tools or "").strip().lower()
+        _st = True if _st_raw in ("true", "1", "yes") else (False if _st_raw in ("false", "0", "no") else None)
         # Resolve hostname via Tailscale if DNS fails
         from src.endpoint_resolver import resolve_url
         base_url = resolve_url(base_url)
@@ -2092,6 +2094,9 @@ def setup_model_routes(model_discovery):
                 if api_key.strip() and not existing.api_key:
                     existing.api_key = api_key.strip()
                     changed = True
+                if _st is not None and existing.supports_tools is not _st:
+                    existing.supports_tools = _st
+                    changed = True
                 # Keep duplicate endpoint registration cheap. This path is hit
                 # by Cookbook/browser auto-register flows and can run while the
                 # user is sending a chat message. Probing a stale LAN endpoint
@@ -2146,8 +2151,6 @@ def setup_model_routes(model_discovery):
         ep_id = str(uuid.uuid4())[:8]
         db = SessionLocal()
         try:
-            _st_raw = (supports_tools or "").strip().lower()
-            _st = True if _st_raw in ("true", "1", "yes") else (False if _st_raw in ("false", "0", "no") else None)
             _pinned = _normalize_model_ids(pinned_models)
             # Stamp owner so the picker only shows this endpoint to the admin
             # who added it. Pass `shared=true` to mark it null-owner (visible
