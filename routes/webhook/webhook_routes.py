@@ -24,6 +24,15 @@ MAX_SECRET_LEN = 256
 MAX_MESSAGE_LEN = 32_000
 
 
+class SyncChatRequest(BaseModel):
+    message: str = Field(..., max_length=MAX_MESSAGE_LEN)
+    model: Optional[str] = Field(None, max_length=200)
+    session: Optional[str] = Field(None, max_length=100)
+    api_key: Optional[str] = Field(None, max_length=256)
+    base_url: Optional[str] = Field(None, max_length=MAX_URL_LEN)
+    provider: Optional[str] = Field(None, max_length=50)
+
+
 from core.middleware import require_admin as _require_admin
 
 
@@ -225,14 +234,6 @@ def setup_webhook_routes(
                 if model_lower.startswith(prefix):
                     return KNOWN_PROVIDERS[prov]
         return None
-
-    class SyncChatRequest(BaseModel):
-        message: str = Field(..., max_length=MAX_MESSAGE_LEN)
-        model: Optional[str] = Field(None, max_length=200)
-        session: Optional[str] = Field(None, max_length=100)
-        api_key: Optional[str] = Field(None, max_length=256)
-        base_url: Optional[str] = Field(None, max_length=MAX_URL_LEN)
-        provider: Optional[str] = Field(None, max_length=50)
 
     @router.post("/v1/chat")
     async def sync_chat(request: Request, body: SyncChatRequest):

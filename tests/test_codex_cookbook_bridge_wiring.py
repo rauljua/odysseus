@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from starlette.requests import Request
 
 from routes import codex_routes
+from routes.webhook.webhook_routes import SyncChatRequest
 
 
 def _endpoint(router, method: str, path: str):
@@ -66,6 +67,26 @@ def _cookbook_router(calls: list[dict]) -> APIRouter:
     return router
 
 
+def _webhook_router(calls: list[dict]) -> APIRouter:
+    router = APIRouter()
+
+    @router.post("/api/v1/chat")
+    async def sync_chat(request: Request, body: SyncChatRequest):
+        calls.append({
+            "owner": request.state.api_token_owner,
+            "api_token": request.state.api_token,
+            "message": body.message,
+            "model": body.model,
+        })
+        return {
+            "response": "pong",
+            "session_id": "session-test",
+            "model": body.model,
+        }
+
+    return router
+
+
 @pytest.mark.asyncio
 async def test_cached_models_uses_injected_cookbook_router_as_token_owner():
     calls = []
@@ -116,6 +137,48 @@ async def test_direct_serve_uses_injected_cookbook_router_as_token_owner():
     }]
     assert request.state.current_user == "api"
     assert request.state.api_token is True
+
+
+@pytest.mark.asyncio
+async def test_chat_uses_injected_sync_handler_with_chat_scope():
+    calls = []
+    router = codex_routes.setup_codex_routes(
+        webhook_router=_webhook_router(calls),
+    )
+    request = _request("POST", "/api/codex/chat", ["chat"])
+    body = SyncChatRequest(message="ping", model="org/model")
+
+    result = await _endpoint(router, "POST", "/api/codex/chat")(request, body)
+
+    assert result == {
+        "response": "pong",
+        "session_id": "session-test",
+        "model": "org/model",
+    }
+    assert calls == [{
+        "owner": "alice",
+        "api_token": True,
+        "message": "ping",
+        "model": "org/model",
+    }]
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_token_without_chat_scope():
+    calls = []
+    router = codex_routes.setup_codex_routes(
+        webhook_router=_webhook_router(calls),
+    )
+    request = _request("POST", "/api/codex/chat", ["cookbook:read"])
+
+    with pytest.raises(Exception) as exc_info:
+        await _endpoint(router, "POST", "/api/codex/chat")(
+            request,
+            SyncChatRequest(message="ping"),
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 403
+    assert calls == []
 
 
 @pytest.mark.asyncio

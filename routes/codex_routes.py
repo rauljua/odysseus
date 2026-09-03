@@ -20,6 +20,7 @@ from src.auth_helpers import require_authenticated_request, require_user
 from src.tool_implementations import do_manage_notes
 from src.constants import COOKBOOK_STATE_FILE
 from routes._validators import validate_remote_host, validate_ssh_port
+from routes.webhook.webhook_routes import SyncChatRequest
 
 
 COOKBOOK_READ_SCOPES = {"cookbook:read", "cookbook:launch"}
@@ -35,6 +36,7 @@ CALENDAR_READ_SCOPES = {"calendar:read", "calendar:write"}
 CALENDAR_WRITE_SCOPES = {"calendar:write"}
 DOCS_READ_SCOPES = {"documents:read", "documents:write"}
 DOCS_WRITE_SCOPES = {"documents:write"}
+CHAT_SCOPES = {"chat"}
 WRITE_ACTIONS = {"add", "create", "new", "save", "remind", "update", "delete", "toggle_item", "remove", "remove_item"}
 
 
@@ -151,6 +153,7 @@ def setup_codex_routes(
     calendar_router: APIRouter | None = None,
     document_router: APIRouter | None = None,
     cookbook_router: APIRouter | None = None,
+    webhook_router: APIRouter | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/codex", tags=["codex"])
     email_list_endpoint = _find_endpoint(email_router, "GET", "/api/email/list")
@@ -166,6 +169,7 @@ def setup_codex_routes(
     documents_create_endpoint = _find_endpoint(document_router, "POST", "/api/document")
     cookbook_serve_endpoint = _find_endpoint(cookbook_router, "POST", "/api/model/serve")
     cookbook_cached_endpoint = _find_endpoint(cookbook_router, "GET", "/api/model/cached")
+    sync_chat_endpoint = _find_endpoint(webhook_router, "POST", "/api/v1/chat")
 
     @router.get("/capabilities")
     def capabilities(request: Request):
@@ -211,12 +215,24 @@ def setup_codex_routes(
                     "launch": scoped(COOKBOOK_LAUNCH_SCOPES),
                     "actions": ["tasks", "servers", "output", "serve", "stop"],
                 },
+                "chat": {
+                    "send": scoped(CHAT_SCOPES),
+                    "actions": ["send"],
+                    "available": sync_chat_endpoint is not None,
+                },
             },
             "safety": {
                 "email_send_requires_confirmation": True,
                 "destructive_actions_should_confirm": True,
             },
         }
+
+    @router.post("/chat")
+    async def chat(request: Request, body: SyncChatRequest):
+        _scope_owner(request, CHAT_SCOPES)
+        if sync_chat_endpoint is None:
+            raise HTTPException(503, "chat endpoint unavailable")
+        return await sync_chat_endpoint(request, body)
 
     @router.get("/plugin.zip")
     def plugin_zip(request: Request):
