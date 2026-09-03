@@ -150,6 +150,7 @@ def setup_codex_routes(
     memory_router: APIRouter | None = None,
     calendar_router: APIRouter | None = None,
     document_router: APIRouter | None = None,
+    cookbook_router: APIRouter | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/codex", tags=["codex"])
     email_list_endpoint = _find_endpoint(email_router, "GET", "/api/email/list")
@@ -163,6 +164,8 @@ def setup_codex_routes(
     documents_library_endpoint = _find_endpoint(document_router, "GET", "/api/documents/library")
     documents_get_endpoint = _find_endpoint(document_router, "GET", "/api/document/{doc_id}")
     documents_create_endpoint = _find_endpoint(document_router, "POST", "/api/document")
+    cookbook_serve_endpoint = _find_endpoint(cookbook_router, "POST", "/api/model/serve")
+    cookbook_cached_endpoint = _find_endpoint(cookbook_router, "GET", "/api/model/cached")
 
     @router.get("/capabilities")
     def capabilities(request: Request):
@@ -635,7 +638,7 @@ def setup_codex_routes(
 
     @router.post("/cookbook/serve")
     async def codex_cookbook_serve(request: Request, body: dict[str, Any] = Body(default_factory=dict)):
-        _require_cookbook_scope(request, COOKBOOK_LAUNCH_SCOPES)
+        owner = _require_cookbook_scope(request, COOKBOOK_LAUNCH_SCOPES)
         # Wraps /api/model/serve with the SAME validation the UI uses.
         # _validate_serve_cmd (called inside model_serve) rejects shell
         # metachars and requires the leading binary to be in the
@@ -659,7 +662,7 @@ def setup_codex_routes(
             req = ServeRequest(**norm)
         except Exception as exc:
             raise HTTPException(400, f"Invalid serve payload: {exc}")
-        serve_endpoint = _find_endpoint(None, "POST", "/api/model/serve")
+        serve_endpoint = cookbook_serve_endpoint
         # Fall back to importing from the cookbook router registered on app.
         if serve_endpoint is None:
             from fastapi import FastAPI
@@ -670,7 +673,7 @@ def setup_codex_routes(
                     break
         if serve_endpoint is None:
             raise HTTPException(503, "model serve endpoint unavailable")
-        return await serve_endpoint(request, req)
+        return await _as_owner(request, owner, serve_endpoint, request, req)
 
     @router.post("/cookbook/stop/{session_id}")
     async def codex_cookbook_stop(request: Request, session_id: str):
@@ -694,7 +697,7 @@ def setup_codex_routes(
         """List cached models on a configured server (or local if host is omitted).
         Mirrors `list_cached_models` from the chat agent so external agents have
         the same inventory view before deciding what to serve/download."""
-        _require_cookbook_scope(request, COOKBOOK_READ_SCOPES)
+        owner = _require_cookbook_scope(request, COOKBOOK_READ_SCOPES)
         # Hit /api/model/cached internally, with the same modelDirs the chat
         # agent's list_cached_models would resolve from cookbook state.
         state = _read_cookbook_state()
@@ -732,7 +735,7 @@ def setup_codex_routes(
             params["ssh_port"] = str(srv["port"])
         if srv.get("platform"):
             params["platform"] = srv["platform"]
-        cached_endpoint = _find_endpoint(None, "GET", "/api/model/cached")
+        cached_endpoint = cookbook_cached_endpoint
         if cached_endpoint is None:
             from fastapi import FastAPI
             app: FastAPI = request.app
@@ -743,7 +746,10 @@ def setup_codex_routes(
         if cached_endpoint is None:
             raise HTTPException(503, "model cached endpoint unavailable")
         # The endpoint reads host/model_dir/ssh_port/platform as kwargs.
-        return await cached_endpoint(
+        return await _as_owner(
+            request,
+            owner,
+            cached_endpoint,
             request,
             host=params.get("host") or None,
             model_dir=params.get("model_dir") or None,
@@ -776,7 +782,7 @@ def setup_codex_routes(
     async def codex_cookbook_serve_preset(request: Request, name: str):
         """Launch a saved preset by name. Reuses the working cmd + host the
         user already saved, avoiding the cmd-allowlist trial-and-error loop."""
-        _require_cookbook_scope(request, COOKBOOK_LAUNCH_SCOPES)
+        owner = _require_cookbook_scope(request, COOKBOOK_LAUNCH_SCOPES)
         import re as _re
         if not _re.fullmatch(r"[A-Za-z0-9 _.:@\-]+", name):
             raise HTTPException(400, "Invalid preset name")
@@ -810,7 +816,7 @@ def setup_codex_routes(
             req = ServeRequest(**body)
         except Exception as exc:
             raise HTTPException(400, f"Preset payload invalid: {exc}")
-        serve_endpoint = _find_endpoint(None, "POST", "/api/model/serve")
+        serve_endpoint = cookbook_serve_endpoint
         if serve_endpoint is None:
             from fastapi import FastAPI
             app: FastAPI = request.app
@@ -820,7 +826,7 @@ def setup_codex_routes(
                     break
         if serve_endpoint is None:
             raise HTTPException(503, "model serve endpoint unavailable")
-        return await serve_endpoint(request, req)
+        return await _as_owner(request, owner, serve_endpoint, request, req)
 
     @router.post("/cookbook/adopt")
     async def codex_cookbook_adopt(request: Request, body: dict[str, Any] = Body(default_factory=dict)):

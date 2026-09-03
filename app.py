@@ -801,7 +801,8 @@ app.include_router(setup_shell_routes())
 
 # Cookbook (model download/serve/cache, cookbook state sync)
 from routes.cookbook_routes import setup_cookbook_routes
-app.include_router(setup_cookbook_routes())
+cookbook_router = setup_cookbook_routes()
+app.include_router(cookbook_router)
 
 from routes.workspace_routes import setup_workspace_routes
 app.include_router(setup_workspace_routes())
@@ -873,6 +874,7 @@ app.include_router(setup_codex_routes(
     memory_router=memory_router,
     calendar_router=calendar_router,
     document_router=document_router,
+    cookbook_router=cookbook_router,
 ))
 app.include_router(setup_claude_routes())
 
