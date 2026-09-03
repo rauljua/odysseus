@@ -226,7 +226,7 @@ class _WebhookManager:
         return None
 
 
-def _install_sync_chat_stubs(monkeypatch):
+def _install_sync_chat_stubs(monkeypatch, llm_calls=None):
     # FastAPI checks for python_multipart at import time when Form is used;
     # stub it so the optional dependency is not required in the test environment.
     python_multipart = types.ModuleType("python_multipart")
@@ -238,7 +238,21 @@ def _install_sync_chat_stubs(monkeypatch):
             self.role = role
             self.content = content
 
-    async def _llm_call_async(endpoint_url, model, messages, headers=None, timeout=None):
+    async def _llm_call_async(
+        endpoint_url,
+        model,
+        messages,
+        headers=None,
+        timeout=None,
+        max_tokens=0,
+    ):
+        if llm_calls is not None:
+            llm_calls.append({
+                "endpoint_url": endpoint_url,
+                "model": model,
+                "max_tokens": max_tokens,
+                "timeout": timeout,
+            })
         return "mocked response"
 
     endpoint_resolver = types.ModuleType("src.endpoint_resolver")
@@ -302,7 +316,8 @@ async def test_api_chat_direct_base_url_rejects_local_private_targets(monkeypatc
 @pytest.mark.asyncio
 async def test_api_chat_direct_base_url_allows_mocked_public_endpoint(monkeypatch):
     webhook_routes = _load_webhook_routes_for_test(monkeypatch)
-    _install_sync_chat_stubs(monkeypatch)
+    llm_calls = []
+    _install_sync_chat_stubs(monkeypatch, llm_calls)
 
     from src import url_security
 
@@ -321,6 +336,7 @@ async def test_api_chat_direct_base_url_allows_mocked_public_endpoint(monkeypatc
         model="test-model",
         provider=None,
         session=None,
+        max_tokens=17,
     )
 
     response = await sync_chat(_Request(), body)
@@ -328,6 +344,12 @@ async def test_api_chat_direct_base_url_allows_mocked_public_endpoint(monkeypatc
     assert response["response"] == "mocked response"
     assert response["model"] == "test-model"
     assert session_manager.created[0]["endpoint_url"] == "https://api.example.com/v1/chat/completions"
+    assert llm_calls == [{
+        "endpoint_url": "https://api.example.com/v1/chat/completions",
+        "model": "test-model",
+        "max_tokens": 17,
+        "timeout": 120,
+    }]
 
 
 def test_api_chat_fallback_endpoint_selection_for_owned_token(monkeypatch):

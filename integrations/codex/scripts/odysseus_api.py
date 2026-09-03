@@ -49,6 +49,10 @@ def _config() -> tuple[str, str] | None:
     return base_url, token
 
 
+def _request_timeout(path: str) -> int:
+    return 130 if path == "/api/codex/chat" else 20
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         return _usage()
@@ -201,8 +205,9 @@ def main() -> int:
         headers["Content-Type"] = "application/json"
 
     req = urllib.request.Request(base_url + path, data=data, headers=headers, method=method)
+    timeout = _request_timeout(path)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             print(resp.read().decode("utf-8"))
             return 0
     except urllib.error.HTTPError as exc:

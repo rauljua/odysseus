@@ -78,6 +78,7 @@ def _webhook_router(calls: list[dict]) -> APIRouter:
             "message": body.message,
             "model": body.model,
             "endpoint_id": body.endpoint_id,
+            "max_tokens": body.max_tokens,
         })
         return {
             "response": "pong",
@@ -151,6 +152,7 @@ async def test_chat_uses_injected_sync_handler_with_chat_scope():
         message="ping",
         model="org/model",
         endpoint_id="local-test",
+        max_tokens=16,
     )
 
     result = await _endpoint(router, "POST", "/api/codex/chat")(request, body)
@@ -166,6 +168,7 @@ async def test_chat_uses_injected_sync_handler_with_chat_scope():
         "message": "ping",
         "model": "org/model",
         "endpoint_id": "local-test",
+        "max_tokens": 16,
     }]
 
 

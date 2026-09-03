@@ -28,6 +28,7 @@ class SyncChatRequest(BaseModel):
     message: str = Field(..., max_length=MAX_MESSAGE_LEN)
     model: Optional[str] = Field(None, max_length=200)
     endpoint_id: Optional[str] = Field(None, max_length=100)
+    max_tokens: Optional[int] = Field(None, ge=1, le=8192)
     session: Optional[str] = Field(None, max_length=100)
     api_key: Optional[str] = Field(None, max_length=256)
     base_url: Optional[str] = Field(None, max_length=MAX_URL_LEN)
@@ -390,9 +391,15 @@ def setup_webhook_routes(
 
         messages = [{"role": m.role, "content": m.content} for m in sess.history]
 
+        call_options = {"headers": sess.headers, "timeout": 120}
+        max_tokens = getattr(body, "max_tokens", None)
+        if max_tokens is not None:
+            call_options["max_tokens"] = max_tokens
         reply = await llm_call_async(
-            sess.endpoint_url, sess.model, messages,
-            headers=sess.headers, timeout=120,
+            sess.endpoint_url,
+            sess.model,
+            messages,
+            **call_options,
         )
         sess.add_message(ChatMessage("assistant", reply))
         session_manager.save_sessions()
