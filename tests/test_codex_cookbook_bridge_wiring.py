@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -155,3 +156,48 @@ async def test_saved_preset_uses_injected_cookbook_router_as_token_owner(
         "repo_id": "org/model",
         "cmd": "llama-server --port 8000",
     }]
+
+
+@pytest.mark.asyncio
+async def test_output_recovers_local_log_after_task_record_disappears(
+    monkeypatch,
+    tmp_path,
+):
+    state_path = tmp_path / "cookbook_state.json"
+    state_path.write_text(json.dumps({"tasks": []}), encoding="utf-8")
+    monkeypatch.setattr(codex_routes, "COOKBOOK_STATE_FILE", str(state_path))
+    commands = []
+
+    class _Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"root cause from persistent log\n", b""
+
+    async def _create_subprocess_shell(command, **kwargs):
+        commands.append(command)
+        return _Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", _create_subprocess_shell)
+    router = codex_routes.setup_codex_routes()
+    request = _request(
+        "GET",
+        "/api/codex/cookbook/output/serve-gone",
+        ["cookbook:read"],
+    )
+
+    result = await _endpoint(
+        router,
+        "GET",
+        "/api/codex/cookbook/output/{session_id}",
+    )(request, "serve-gone", tail=600)
+
+    assert result["host"] == "local"
+    assert result["task"] is None
+    assert result["orphaned"] is True
+    assert result["output"] == "root cause from persistent log\n"
+    assert commands == [
+        "if [ -s /tmp/odysseus-tmux/serve-gone.log ]; then "
+        "tail -n 600 /tmp/odysseus-tmux/serve-gone.log; else "
+        "tmux capture-pane -t serve-gone -p -S -600; fi"
+    ]

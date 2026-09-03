@@ -609,9 +609,12 @@ def setup_codex_routes(
         state = _read_cookbook_state()
         tasks = state.get("tasks") or []
         task = next((t for t in tasks if t.get("sessionId") == session_id), None)
-        if task is None:
-            raise HTTPException(404, "task not found")
-        host, port_flag = _ssh_prefix_for_task(task)
+        # A serve launched through the scoped bridge can exit before a browser
+        # sync writes its client-side task record. The persistent local log is
+        # still the authoritative crash artifact, so allow a constrained local
+        # lookup when the record has already disappeared. Remote recovery still
+        # needs the task record to resolve its SSH target.
+        host, port_flag = _ssh_prefix_for_task(task or {})
         # Prefer the persisted log file over the tmux pane. The pane gets
         # overwritten by the post-crash neofetch banner + bash prompt the
         # moment vllm exits; the log file is the raw stdout/stderr and
@@ -633,7 +636,8 @@ def setup_codex_routes(
             "host": host or "local",
             "exit_code": result.get("exit_code"),
             "output": result.get("stdout", ""),
-            "task": _redact_task(task),
+            "task": _redact_task(task) if task else None,
+            "orphaned": task is None,
         }
 
     @router.post("/cookbook/serve")
