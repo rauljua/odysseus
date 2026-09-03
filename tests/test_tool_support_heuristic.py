@@ -13,6 +13,7 @@ from src.agent_loop import (
     _API_HOSTS,
     _agent_route_tool_mode,
     _endpoint_lookup_keys,
+    _is_local_openai_compat_url,
     _is_ollama_openai_compat_url,
 )
 from src.llm_core import _is_ollama_native_url
@@ -42,6 +43,7 @@ def _compute_is_api_model(model: str, endpoint_url: str, endpoint_supports=None)
         or model_no_tools
         or _is_ollama_native_url(endpoint_url)
         or _is_ollama_openai_compat_url(endpoint_url)
+        or _is_local_openai_compat_url(endpoint_url)
     ):
         return False
     return any(h in endpoint_url for h in _API_HOSTS) or model_supports_tools
@@ -143,13 +145,38 @@ class TestDeepSeekToolSupport:
         )
         assert result is False
 
-    # --- other local models unaffected ---
+    # --- other local servers require an explicit capability opt-in ---
 
-    def test_qwen_local_non_ollama_still_gets_tools(self):
-        assert _compute_is_api_model("qwen2.5:14b", "http://localhost:8000/v1") is True
+    def test_qwen_local_non_ollama_defaults_to_fenced_tools(self):
+        assert _compute_is_api_model("qwen2.5:14b", "http://localhost:8000/v1") is False
 
-    def test_llama_local_non_ollama_gets_tools_via_host(self):
-        assert _compute_is_api_model("llama3.2:3b", "http://localhost:8000/v1") is True
+    def test_llama_local_non_ollama_defaults_to_fenced_tools(self):
+        assert _compute_is_api_model("llama3.2:3b", "http://localhost:8000/v1") is False
+
+
+def test_route_tool_mode_local_openai_endpoint_requires_explicit_opt_in(monkeypatch):
+    from core import database
+
+    class Query:
+        def filter(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return []
+
+    class Db:
+        def query(self, *args, **kwargs):
+            return Query()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(database, "SessionLocal", lambda: Db())
+
+    assert _agent_route_tool_mode(
+        "http://localhost:8000/v1/chat/completions",
+        "QuantTrio/Qwen3.5-9B-AWQ",
+    )[0] is False
 
 
 class TestApiHostsContainsDeepSeek:

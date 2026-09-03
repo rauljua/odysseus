@@ -1060,6 +1060,7 @@ def _agent_route_tool_mode(
         or model_no_tools
         or is_ollama_native
         or ollama_openai_compat
+        or _is_local_openai_compat_url(endpoint_url)
     ):
         is_api_model = False
     else:
