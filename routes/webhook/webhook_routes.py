@@ -27,6 +27,7 @@ MAX_MESSAGE_LEN = 32_000
 class SyncChatRequest(BaseModel):
     message: str = Field(..., max_length=MAX_MESSAGE_LEN)
     model: Optional[str] = Field(None, max_length=200)
+    endpoint_id: Optional[str] = Field(None, max_length=100)
     session: Optional[str] = Field(None, max_length=100)
     api_key: Optional[str] = Field(None, max_length=256)
     base_url: Optional[str] = Field(None, max_length=MAX_URL_LEN)
@@ -36,7 +37,11 @@ class SyncChatRequest(BaseModel):
 from core.middleware import require_admin as _require_admin
 
 
-def _select_api_chat_fallback_endpoint(db, token_owner: Optional[str]):
+def _select_api_chat_fallback_endpoint(
+    db,
+    token_owner: Optional[str],
+    endpoint_id: Optional[str] = None,
+):
     """First enabled ModelEndpoint visible to token_owner — their own rows plus
     legacy null-owner ("shared") rows. Owner-scoped: an unscoped .first() would
     let a chat-scoped token fall back onto another user's private endpoint and
@@ -45,6 +50,8 @@ def _select_api_chat_fallback_endpoint(db, token_owner: Optional[str]):
     Does not validate base_url — admin-configured local/LAN endpoints remain allowed.
     """
     query = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+    if endpoint_id:
+        query = query.filter(ModelEndpoint.id == endpoint_id)
     if token_owner:
         query = owner_filter(query, ModelEndpoint, token_owner)
         return query.order_by(ModelEndpoint.owner.desc(), ModelEndpoint.created_at).first()
@@ -316,7 +323,11 @@ def setup_webhook_routes(
         if not sess:
             db = SessionLocal()
             try:
-                ep = _select_api_chat_fallback_endpoint(db, token_owner)
+                ep = _select_api_chat_fallback_endpoint(
+                    db,
+                    token_owner,
+                    getattr(body, "endpoint_id", None),
+                )
             finally:
                 db.close()
 

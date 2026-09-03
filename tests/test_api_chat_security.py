@@ -106,6 +106,7 @@ class _Column:
 
 
 class _ModelEndpoint:
+    id = _Column("id")
     is_enabled = _Column("is_enabled")
     owner = _Column("owner")
     created_at = _Column("created_at")
@@ -115,12 +116,14 @@ class _Endpoint:
     def __init__(
         self,
         *,
+        endpoint_id="endpoint",
         owner,
         is_enabled=True,
         created_at=1,
         base_url="https://api.example.com/v1",
         api_key=None,
     ):
+        self.id = endpoint_id
         self.owner = owner
         self.is_enabled = is_enabled
         self.created_at = created_at
@@ -360,6 +363,31 @@ def test_api_chat_fallback_without_owner_uses_shared_only(monkeypatch):
     assert selected.owner is None
     assert selected.is_enabled is True
     assert selected.created_at == 2
+
+
+def test_api_chat_explicit_endpoint_is_owner_scoped(monkeypatch):
+    webhook_routes = _load_webhook_routes_for_test(monkeypatch)
+    rows = [
+        _Endpoint(endpoint_id="bob-local", owner="bob", created_at=0),
+        _Endpoint(endpoint_id="alice-other", owner="alice", created_at=1),
+        _Endpoint(endpoint_id="alice-local", owner="alice", created_at=2),
+    ]
+
+    monkeypatch.setattr(webhook_routes, "ModelEndpoint", _ModelEndpoint)
+
+    selected = webhook_routes._select_api_chat_fallback_endpoint(
+        _DB(rows),
+        "alice",
+        "alice-local",
+    )
+    hidden = webhook_routes._select_api_chat_fallback_endpoint(
+        _DB(rows),
+        "alice",
+        "bob-local",
+    )
+
+    assert selected.id == "alice-local"
+    assert hidden is None
 
 
 @pytest.mark.asyncio
