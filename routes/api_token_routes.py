@@ -14,6 +14,7 @@ MAX_NAME_LEN = 100
 DEFAULT_SCOPES = "chat"
 ALLOWED_SCOPES = {
     "chat",
+    "chat:read",
     "todos:read",
     "todos:write",
     "documents:read",

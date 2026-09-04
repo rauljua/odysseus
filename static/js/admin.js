@@ -2514,6 +2514,7 @@ function initRag() {
 // Catalog mirrors the one in settings.js integration form. Keep keys in
 // sync with the backend scope allowlist.
 const _TOKEN_SCOPES = [
+  { key: 'chat:read',         label: 'Chat history read', detail: 'Read conversation transcripts owned by this account' },
   { key: 'todos:read',        label: 'Todos read',        detail: 'Read notes and checklists' },
   { key: 'todos:write',       label: 'Todos write',       detail: 'Create, update, delete, and toggle todo items' },
   { key: 'documents:read',    label: 'Documents read',    detail: 'Read documents when a document API is enabled' },
@@ -2617,7 +2618,9 @@ async function loadTokens() {
         const tokenId = cb.dataset.tokenId;
         const panel = list.querySelector(`[data-adm-tok-perm="${tokenId}"]`);
         const msg = list.querySelector(`.adm-tok-scope-msg[data-token-id="${tokenId}"]`);
-        const scopes = Array.from(panel.querySelectorAll('.adm-tok-scope:checked')).map(input => input.dataset.scope);
+        const scopes = ['chat'].concat(
+          Array.from(panel.querySelectorAll('.adm-tok-scope:checked')).map(input => input.dataset.scope)
+        );
         try {
           const r = await fetch(`/api/tokens/${tokenId}`, {
             method: 'PATCH', credentials: 'same-origin',

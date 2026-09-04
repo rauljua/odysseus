@@ -207,6 +207,21 @@ def test_create_token_accepts_cookbook_read_scope(monkeypatch, token_routes_mod)
     assert resp["scopes"] == ["cookbook:read"]
 
 
+def test_create_token_accepts_chat_history_read_scope(monkeypatch, token_routes_mod):
+    monkeypatch.setenv("AUTH_ENABLED", "true")
+    mod = token_routes_mod
+
+    fake_session = MagicMock()
+    monkeypatch.setattr(mod, "get_db_session", lambda: _db_ctx(fake_session))
+    monkeypatch.setattr(mod, "get_current_user", lambda req: req.state.current_user)
+
+    req = _req("alice", is_admin=True)
+    create_token = _get_handler(mod, "POST", "/tokens")
+    resp = create_token(request=req, name="history-reader", scopes="chat,chat:read")
+
+    assert resp["scopes"] == ["chat", "chat:read"]
+
+
 def test_cookbook_launch_scope_implies_read(monkeypatch, token_routes_mod):
     monkeypatch.setenv("AUTH_ENABLED", "true")
     mod = token_routes_mod
