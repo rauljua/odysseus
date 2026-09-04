@@ -1,9 +1,19 @@
+from pathlib import Path
+
 from integrations.codex.scripts import odysseus_api
 from integrations.codex.scripts.odysseus_api import _request_timeout
 
 
 def test_scoped_chat_timeout_covers_sync_inference_window():
     assert _request_timeout("/api/codex/chat") == 130
+
+
+def test_scoped_chat_bypasses_short_app_timeout():
+    source = Path("app.py").read_text()
+    start = source.index("_TIMEOUT_EXEMPT_PREFIXES =")
+    end = source.index("\n)\n", start)
+
+    assert '"/api/codex/chat"' in source[start:end]
 
 
 def test_other_scoped_requests_keep_short_timeout():
