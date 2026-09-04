@@ -743,7 +743,7 @@ async def test_streaming_chat_persists_selected_route_cost_classification(
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_route_does_not_save_or_postprocess_terminal_agent_error(monkeypatch):
+async def test_chat_stream_persists_first_event_agent_error(monkeypatch):
     captured = {}
     error_chunk = 'event: error\ndata: {"status": 401, "error": "invalid key"}\n\n'
     endpoint = _chat_stream_endpoint(
@@ -758,7 +758,57 @@ async def test_chat_stream_route_does_not_save_or_postprocess_terminal_agent_err
     chunks = [chunk async for chunk in response.body_iterator]
 
     assert error_chunk in chunks
-    assert "saved" not in captured
+    assert len(captured["saved"]) == 1
+    saved_args, _saved_kwargs = captured["saved"][0]
+    assert saved_args[3] == "[Agent stopped: Model request failed (HTTP 401)]"
+    assert "invalid key" not in str(saved_args)
+    assert saved_args[4]["failure"] == {
+        "status": 401,
+        "message": "Model request failed (HTTP 401)",
+    }
+    assert saved_args[4]["failed"] is True
+    assert saved_args[4]["input_tokens"] == 10
+    assert saved_args[4]["output_tokens"] == 0
+    assert captured["accumulated_usage"][0][0][1] == saved_args[4]
+    terminal = json.loads(next(
+        chunk for chunk in chunks if '"type": "agent_terminal"' in chunk
+    )[6:])["data"]
+    assert terminal == saved_args[4]
+    assert "post_processed" not in captured
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_persists_first_event_chat_error(monkeypatch):
+    captured = {}
+    error_chunk = 'event: error\ndata: {"status": 400, "error": "provider detail"}\n\n'
+    endpoint = _chat_stream_endpoint(
+        monkeypatch,
+        "chat",
+        captured,
+        chat_chunks=[error_chunk],
+        capture_completion=True,
+    )
+
+    response = await endpoint(_RouteRequest("chat"))
+    chunks = [chunk async for chunk in response.body_iterator]
+
+    assert error_chunk in chunks
+    assert len(captured["saved"]) == 1
+    saved_args, _saved_kwargs = captured["saved"][0]
+    assert saved_args[3] == "[Response stopped: Model request failed (HTTP 400)]"
+    assert "provider detail" not in str(saved_args)
+    assert saved_args[4]["failure"] == {
+        "status": 400,
+        "message": "Model request failed (HTTP 400)",
+    }
+    assert saved_args[4]["failed"] is True
+    assert saved_args[4]["input_tokens"] == 10
+    assert saved_args[4]["output_tokens"] == 0
+    assert captured["accumulated_usage"][0][0][1] == saved_args[4]
+    terminal = json.loads(next(
+        chunk for chunk in chunks if '"type": "chat_terminal"' in chunk
+    )[6:])["data"]
+    assert terminal == saved_args[4]
     assert "post_processed" not in captured
 
 

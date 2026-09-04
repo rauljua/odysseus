@@ -2062,10 +2062,7 @@ def setup_chat_routes(
                                 yield chunk
                         elif chunk.startswith("event: error"):
                             logger.warning(f"Stream error for {sess.model} on {sess.endpoint_url}: {chunk!r}")
-                            if (
-                                not _chat_terminal_saved
-                                and (full_response.strip() or thinking_response.strip())
-                            ):
+                            if not _chat_terminal_saved:
                                 _failure_status = _stream_failure_status(chunk)
                                 _failure_message = (
                                     f"Model request failed (HTTP {_failure_status})"
@@ -2253,6 +2250,7 @@ def setup_chat_routes(
                     _active_streams.pop(session, None)
             else:
                 # ── Agent mode: full agent loop with tools ──
+                _agent_start = time.time()
                 _agent_rounds = 0
                 _agent_tool_calls = 0
                 _answered_by = None  # set if the selected model failed and a fallback answered
@@ -2261,6 +2259,9 @@ def setup_chat_routes(
                 _agent_requested_route = _foreground_route_descriptors[0]
                 _agent_actual_endpoint_id = _agent_requested_route.get("endpoint_id")
                 _agent_actual_endpoint_label = _agent_requested_route.get("endpoint_label")
+                _agent_actual_endpoint_cost_tracked = _agent_requested_route.get(
+                    "endpoint_cost_tracked"
+                )
                 _agent_round_models = {1: _requested_model}
                 _agent_round_endpoint_ids = {1: _agent_actual_endpoint_id}
                 _agent_round_endpoint_labels = {1: _agent_actual_endpoint_label}
@@ -2384,6 +2385,13 @@ def setup_chat_routes(
                                         _agent_actual_endpoint_id = data.get("answered_by_endpoint_id")
                                     if data.get("answered_by_endpoint_label"):
                                         _agent_actual_endpoint_label = data.get("answered_by_endpoint_label")
+                                    if isinstance(
+                                        data.get("answered_by_endpoint_cost_tracked"),
+                                        bool,
+                                    ):
+                                        _agent_actual_endpoint_cost_tracked = data.get(
+                                            "answered_by_endpoint_cost_tracked"
+                                        )
                                     _event_round = data.get("round") or max(_agent_rounds, 1)
                                     _agent_round_models[_event_round] = _answered_by or _requested_model
                                     _agent_round_endpoint_ids[_event_round] = _agent_actual_endpoint_id
@@ -2466,6 +2474,96 @@ def setup_chat_routes(
                                     yield f'data: {json.dumps(_metrics_event)}\n\n'
                             except json.JSONDecodeError:
                                 yield chunk
+                        elif chunk.startswith("event: error"):
+                            if not _terminal_saved:
+                                failure_status = _stream_failure_status(chunk)
+                                failure_message = (
+                                    f"Model request failed (HTTP {failure_status})"
+                                    if failure_status is not None
+                                    else "Model request failed"
+                                )
+                                terminal_content = full_response.strip()
+                                failure_note = f"[Agent stopped: {failure_message}]"
+                                terminal_content = (
+                                    f"{terminal_content}\n\n{failure_note}"
+                                    if terminal_content
+                                    else failure_note
+                                )
+                                estimated_input = estimate_tokens(messages)
+                                estimated_output = max(
+                                    len(full_response + thinking_response) // 4,
+                                    0,
+                                )
+                                terminal_metadata = {
+                                    "failed": True,
+                                    "failure": {
+                                        "status": failure_status,
+                                        "message": failure_message,
+                                    },
+                                    "model": _actual_model or _answered_by or _requested_model,
+                                    "requested_model": _requested_model,
+                                    "endpoint_id": _agent_actual_endpoint_id,
+                                    "endpoint_label": _agent_actual_endpoint_label,
+                                    "requested_endpoint_id": _agent_requested_route.get("endpoint_id"),
+                                    "requested_endpoint_label": _agent_requested_route.get("endpoint_label"),
+                                    "input_tokens": estimated_input,
+                                    "output_tokens": estimated_output,
+                                    "total_tokens": estimated_input + estimated_output,
+                                    "usage_source": "estimated",
+                                    "response_time": round(time.time() - _agent_start, 2),
+                                    "context_length": _selected_context_length,
+                                    "context_percent": (
+                                        min(
+                                            round(
+                                                (estimated_input / _selected_context_length) * 100,
+                                                1,
+                                            ),
+                                            100.0,
+                                        )
+                                        if _selected_context_length
+                                        else 0
+                                    ),
+                                    "round_models": [
+                                        _agent_round_models.get(i, _actual_model or _requested_model)
+                                        for i in range(1, max(_agent_round_models, default=1) + 1)
+                                    ],
+                                    "round_endpoint_ids": [
+                                        _agent_round_endpoint_ids.get(i)
+                                        for i in range(1, max(_agent_round_models, default=1) + 1)
+                                    ],
+                                    "round_endpoint_labels": [
+                                        _agent_round_endpoint_labels.get(i)
+                                        for i in range(1, max(_agent_round_models, default=1) + 1)
+                                    ],
+                                }
+                                if isinstance(
+                                    _agent_actual_endpoint_cost_tracked,
+                                    bool,
+                                ):
+                                    terminal_metadata["endpoint_cost_tracked"] = (
+                                        _agent_actual_endpoint_cost_tracked
+                                    )
+                                if thinking_response.strip():
+                                    terminal_metadata["thinking"] = thinking_response.strip()
+                                _saved_id = save_assistant_response(
+                                    sess,
+                                    session_manager,
+                                    session,
+                                    terminal_content,
+                                    terminal_metadata,
+                                    character_name=ctx.preset.character_name,
+                                    web_sources=web_sources,
+                                    rag_sources=ctx.rag_sources,
+                                    used_memories=ctx.used_memories,
+                                    incognito=incognito,
+                                )
+                                _terminal_saved = True
+                                accumulate_token_usage(session, terminal_metadata)
+                                _stream_set(session, status="error")
+                                if _saved_id:
+                                    yield f'data: {json.dumps({"type": "message_saved", "id": _saved_id})}\n\n'
+                                yield f'data: {json.dumps({"type": "agent_terminal", "data": terminal_metadata})}\n\n'
+                            yield chunk
                         elif chunk.startswith("event: "):
                             yield chunk
                         elif chunk == "data: [DONE]\n\n":
