@@ -32,6 +32,10 @@ def _openai_msg(content, reasoning_content=None):
     return {"choices": [{"message": msg}]}
 
 
+def _openai_msg_with_reasoning_alias(content, field, value):
+    return {"choices": [{"message": {"content": content, field: value}}]}
+
+
 # ---------------------------------------------------------------------------
 # 1. llm_call (sync): empty content → falls back to reasoning_content
 # ---------------------------------------------------------------------------
@@ -67,6 +71,49 @@ def test_llm_call_async_returns_reasoning_content_when_content_empty(monkeypatch
         [{"role": "user", "content": "think"}],
     ))
     assert result == "async reasoning text"
+
+
+@pytest.mark.parametrize("field", ["reasoning", "thinking"])
+def test_llm_call_returns_reasoning_alias_when_content_empty(monkeypatch, field):
+    monkeypatch.setattr(
+        llm_core.httpx,
+        "post",
+        lambda *a, **kw: _sync_response(
+            _openai_msg_with_reasoning_alias("", field, "aliased reasoning text")
+        ),
+    )
+
+    result = llm_core.llm_call(
+        f"http://test-{field}/v1",
+        "qwen3-8b",
+        [{"role": "user", "content": f"think using {field}"}],
+    )
+
+    assert result == "aliased reasoning text"
+
+
+@pytest.mark.parametrize("field", ["reasoning", "thinking"])
+def test_llm_call_async_returns_reasoning_alias_when_content_empty(monkeypatch, field):
+    class _FakeAsyncClient:
+        async def post(self, *a, **kw):
+            req = httpx.Request("POST", "http://test-async/v1/chat/completions")
+            return httpx.Response(
+                200,
+                request=req,
+                json=_openai_msg_with_reasoning_alias(
+                    "", field, "async aliased reasoning text"
+                ),
+            )
+
+    monkeypatch.setattr(llm_core, "_get_http_client", lambda: _FakeAsyncClient())
+
+    result = asyncio.run(llm_core.llm_call_async(
+        f"http://test-async-{field}/v1",
+        "qwen3-8b",
+        [{"role": "user", "content": f"think using {field}"}],
+    ))
+
+    assert result == "async aliased reasoning text"
 
 
 # ---------------------------------------------------------------------------

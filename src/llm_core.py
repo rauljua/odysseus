@@ -2056,9 +2056,21 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
                 if thinking_part:
                     response = thinking_part + "\n\n" + (text_part or "")
                 else:
-                    response = text_part or msg.get("reasoning_content") or ""
+                    response = (
+                        text_part
+                        or msg.get("reasoning_content")
+                        or msg.get("reasoning")
+                        or msg.get("thinking")
+                        or ""
+                    )
             else:
-                response = content or msg.get("reasoning_content") or ""
+                response = (
+                    content
+                    or msg.get("reasoning_content")
+                    or msg.get("reasoning")
+                    or msg.get("thinking")
+                    or ""
+                )
         _set_cached_response(cache_key, response)
         return response
     except Exception:
@@ -2456,9 +2468,21 @@ async def llm_call_async(
                         if thinking_part:
                             response = thinking_part + "\n\n" + (text_part or "")
                         else:
-                            response = text_part or msg.get("reasoning_content") or ""
+                            response = (
+                                text_part
+                                or msg.get("reasoning_content")
+                                or msg.get("reasoning")
+                                or msg.get("thinking")
+                                or ""
+                            )
                     else:
-                        response = content or msg.get("reasoning_content") or ""
+                        response = (
+                            content
+                            or msg.get("reasoning_content")
+                            or msg.get("reasoning")
+                            or msg.get("thinking")
+                            or ""
+                        )
                 _set_cached_response(
                     cache_key,
                     response,
