@@ -37,6 +37,7 @@ CALENDAR_WRITE_SCOPES = {"calendar:write"}
 DOCS_READ_SCOPES = {"documents:read", "documents:write"}
 DOCS_WRITE_SCOPES = {"documents:write"}
 CHAT_SCOPES = {"chat"}
+CHAT_READ_SCOPES = {"chat:read"}
 WRITE_ACTIONS = {"add", "create", "new", "save", "remind", "update", "delete", "toggle_item", "remove", "remove_item"}
 
 
@@ -154,6 +155,7 @@ def setup_codex_routes(
     document_router: APIRouter | None = None,
     cookbook_router: APIRouter | None = None,
     webhook_router: APIRouter | None = None,
+    session_manager=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/codex", tags=["codex"])
     email_list_endpoint = _find_endpoint(email_router, "GET", "/api/email/list")
@@ -216,9 +218,11 @@ def setup_codex_routes(
                     "actions": ["tasks", "servers", "output", "serve", "stop"],
                 },
                 "chat": {
+                    "read": scoped(CHAT_READ_SCOPES),
                     "send": scoped(CHAT_SCOPES),
-                    "actions": ["send"],
+                    "actions": ["read", "send"],
                     "available": sync_chat_endpoint is not None,
+                    "history_available": session_manager is not None,
                 },
             },
             "safety": {
@@ -233,6 +237,56 @@ def setup_codex_routes(
         if sync_chat_endpoint is None:
             raise HTTPException(503, "chat endpoint unavailable")
         return await sync_chat_endpoint(request, body)
+
+    @router.get("/chat/{session_id}")
+    def read_chat(
+        request: Request,
+        session_id: str,
+        offset: int = 0,
+        limit: int = 200,
+    ):
+        owner = _scope_owner(request, CHAT_READ_SCOPES)
+        if session_manager is None:
+            raise HTTPException(503, "chat history unavailable")
+        offset, limit = _clamp_pagination(
+            offset,
+            limit,
+            default_limit=200,
+            max_limit=500,
+        )
+        try:
+            session = session_manager.get_session(session_id)
+        except KeyError:
+            raise HTTPException(404, "Session not found")
+        if getattr(session, "owner", None) != owner:
+            raise HTTPException(404, "Session not found")
+
+        history = list(getattr(session, "history", []) or [])
+        page = history[offset:offset + limit]
+        messages = []
+        for message in page:
+            if hasattr(message, "to_dict"):
+                messages.append(message.to_dict())
+            elif isinstance(message, dict):
+                messages.append(dict(message))
+            else:
+                item = {
+                    "role": getattr(message, "role", ""),
+                    "content": getattr(message, "content", ""),
+                }
+                metadata = getattr(message, "metadata", None)
+                if metadata:
+                    item["metadata"] = metadata
+                messages.append(item)
+        return {
+            "session_id": session_id,
+            "name": getattr(session, "name", ""),
+            "model": getattr(session, "model", ""),
+            "messages": messages,
+            "total": len(history),
+            "offset": offset,
+            "limit": limit,
+        }
 
     @router.get("/plugin.zip")
     def plugin_zip(request: Request):

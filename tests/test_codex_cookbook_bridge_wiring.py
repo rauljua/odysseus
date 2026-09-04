@@ -1,11 +1,13 @@
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter
 from starlette.requests import Request
 
 from routes import codex_routes
+from core.models import ChatMessage
 from routes.webhook.webhook_routes import SyncChatRequest
 
 
@@ -188,6 +190,102 @@ async def test_chat_rejects_token_without_chat_scope():
 
     assert getattr(exc_info.value, "status_code", None) == 403
     assert calls == []
+
+
+def test_chat_history_read_returns_only_requested_owner_session():
+    session = SimpleNamespace(
+        owner="alice",
+        name="Local model debugging",
+        model="org/model",
+        history=[
+            ChatMessage("user", "first"),
+            ChatMessage("assistant", "second", {"reasoning": "checked"}),
+            ChatMessage("user", "third"),
+        ],
+    )
+    manager = SimpleNamespace(get_session=lambda session_id: session)
+    router = codex_routes.setup_codex_routes(session_manager=manager)
+    request = _request("GET", "/api/codex/chat/session-test", ["chat:read"])
+
+    result = _endpoint(router, "GET", "/api/codex/chat/{session_id}")(
+        request,
+        "session-test",
+        offset=1,
+        limit=1,
+    )
+
+    assert result == {
+        "session_id": "session-test",
+        "name": "Local model debugging",
+        "model": "org/model",
+        "messages": [{
+            "role": "assistant",
+            "content": "second",
+            "metadata": {"reasoning": "checked"},
+        }],
+        "total": 3,
+        "offset": 1,
+        "limit": 1,
+    }
+
+
+@pytest.mark.parametrize("owner,scopes", [
+    ("bob", ["chat:read"]),
+    ("alice", ["chat"]),
+])
+def test_chat_history_read_rejects_cross_owner_or_send_only_token(owner, scopes):
+    session = SimpleNamespace(owner=owner, history=[])
+    manager = SimpleNamespace(get_session=lambda session_id: session)
+    router = codex_routes.setup_codex_routes(session_manager=manager)
+    request = _request("GET", "/api/codex/chat/session-test", scopes)
+
+    with pytest.raises(Exception) as exc_info:
+        _endpoint(router, "GET", "/api/codex/chat/{session_id}")(
+            request,
+            "session-test",
+        )
+
+    expected = 404 if owner == "bob" else 403
+    assert getattr(exc_info.value, "status_code", None) == expected
+
+
+def test_chat_history_read_returns_404_for_missing_session():
+    def missing(session_id):
+        raise KeyError(session_id)
+
+    manager = SimpleNamespace(get_session=missing)
+    router = codex_routes.setup_codex_routes(session_manager=manager)
+    request = _request("GET", "/api/codex/chat/missing", ["chat:read"])
+
+    with pytest.raises(Exception) as exc_info:
+        _endpoint(router, "GET", "/api/codex/chat/{session_id}")(
+            request,
+            "missing",
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 404
+
+
+def test_capabilities_reports_chat_read_separately_from_send():
+    manager = SimpleNamespace(get_session=lambda session_id: None)
+    router = codex_routes.setup_codex_routes(
+        webhook_router=_webhook_router([]),
+        session_manager=manager,
+    )
+    capabilities = _endpoint(router, "GET", "/api/codex/capabilities")
+
+    send_only = capabilities(
+        _request("GET", "/api/codex/capabilities", ["chat"]),
+    )["tools"]["chat"]
+    reader = capabilities(
+        _request("GET", "/api/codex/capabilities", ["chat", "chat:read"]),
+    )["tools"]["chat"]
+
+    assert send_only["send"] is True
+    assert send_only["read"] is False
+    assert reader["read"] is True
+    assert reader["history_available"] is True
+    assert reader["actions"] == ["read", "send"]
 
 
 @pytest.mark.asyncio

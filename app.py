@@ -877,6 +877,7 @@ app.include_router(setup_codex_routes(
     document_router=document_router,
     cookbook_router=cookbook_router,
     webhook_router=webhook_router,
+    session_manager=session_manager,
 ))
 app.include_router(setup_claude_routes())
 

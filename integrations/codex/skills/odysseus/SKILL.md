@@ -100,6 +100,15 @@ python3 integrations/codex/scripts/odysseus_api.py POST /api/codex/memory '{"tex
 - `POST /api/codex/documents` — body `{"session_id": "...", "title": "...", "content": "...", "language": "markdown"}`. Requires `documents:write`.
 - `DELETE /api/codex/documents/{doc_id}` — delete a document. Requires `documents:write`.
 
+## Chat history
+
+- `GET /api/codex/chat/{session_id}?offset=0&limit=200` — read an owner-scoped conversation transcript. Requires `chat:read`.
+- `POST /api/codex/chat` — send a synchronous message. Requires the baseline `chat` scope.
+
+```bash
+python3 integrations/codex/scripts/odysseus_api.py chat read SESSION_ID
+```
+
 ## Email draft + send
 
 - Prefer `POST /api/codex/emails/draft-document` for Codex-written email replies. It creates an editable Odysseus Document with `language: "email"` and does not touch IMAP/send.

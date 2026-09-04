@@ -22,6 +22,7 @@ def _usage() -> int:
     print("  odysseus_api.py documents read DOC_ID", file=sys.stderr)
     print("  odysseus_api.py documents create JSON_PAYLOAD", file=sys.stderr)
     print("  odysseus_api.py documents delete DOC_ID", file=sys.stderr)
+    print("  odysseus_api.py chat read SESSION_ID [offset] [limit]", file=sys.stderr)
     print("  odysseus_api.py cookbook tasks", file=sys.stderr)
     print("  odysseus_api.py cookbook servers", file=sys.stderr)
     print("  odysseus_api.py cookbook cached [HOST]", file=sys.stderr)
@@ -117,6 +118,16 @@ def main() -> int:
             body = None
         else:
             return _usage()
+    elif command == "chat":
+        if len(sys.argv) < 4 or sys.argv[2].lower() != "read":
+            return _usage()
+        from urllib.parse import quote
+        session_id = quote(sys.argv[3], safe="")
+        offset = sys.argv[4] if len(sys.argv) >= 5 else "0"
+        limit = sys.argv[5] if len(sys.argv) >= 6 else "200"
+        method = "GET"
+        path = f"/api/codex/chat/{session_id}?offset={offset}&limit={limit}"
+        body = None
     elif command == "cookbook":
         if len(sys.argv) < 3:
             return _usage()
